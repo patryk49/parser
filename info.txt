@@ -1,29 +1,29 @@
 INFIX OPERATORS:
-	||		- logical or
-	&&		- logical and
-	==		- logical equal test
-	!=		- logical not eaual test
-	<		- logical lesser test
-	>		- logical greater test
-	<=		- logical lesser or equal test
-	>=		- logical greater or equal test
-	+		- add
+	||    - logical or
+	&&    - logical and
+	==    - logical equal test
+	!=    - logical not eaual test
+	<     - logical lesser test
+	>     - logical greater test
+	<=    - logical lesser or equal test
+	>=    - logical greater or equal test
+	+     - add
 	+%    - add with carry
-	-		- subtract
+	-     - subtract
 	-%    - subtract with borrow
-	*		- multiply
+	*     - multiply
 	*%    - wide multiply
-	/		- divide
+	/     - divide
 	/%    - divide with remainder
-	%		- modulo	
+	%     - modulo	
 	%%    - concatenate
-	|		- bitwise or
-	~|		- bitwise nor
-	&		- bitwise and
-	~&		- bitwise nand
-	><	   - bitwise xor
-	<<		- bitwise left shift
-	>>		- bitwise right shift (logic for unsigned, aritmetic for signed)
+	|     - bitwise or
+	~|    - bitwise nor
+	&     - bitwise and
+	~&    - bitwise nand
+	><    - bitwise xor
+	<<    - bitwise left shift
+	>>    - bitwise right shift (logic for unsigned, aritmetic for signed)
 
 
 RIGHT TO LEFT BINARY OPERATORS:
@@ -45,32 +45,33 @@ PREFIX OPERATORS:
 	[^]     - viewing range
 
 POSTFIX OPERATORS;
-	[index, ...]	- access through indexes
-	(args, ...)		- call procedure or operator ()
+	[index, ...]   - access through indexes
+	(args, ...)    - call procedure or operator ()
 	[begin..end]   - get an array slice
 	[begin..]      - get an array slice with default end
 	[..end]        - get an array slice with default begin
 	[]             - get an array slice with default begin and end
 	{args, ...}    - initialized struct literal
 
-	.member			- access to a member
-	.[index]			- access to a member by index (index can be a number or a string containing the name of field)
-	.(args, ...)	- access to procedure pointer with selected parameters
+	.member	       - access to a member
+	.[index]       - access to a member by index (index can be a number or a string containing the name of field)
+	.(args, ...)   - access to procedure pointer with selected parameters
 
 
 
 PROCEDURE SPECIFIERS:
-	..				- inline
-	{args, ...}	- commute
+	..             - inline
+	{args, ...}    - commute // not sure if it's worth implementing
 
 INPUT ARGUMENTS SPECIFIERS:
-	:!		- restrict
-	:&		- reference (like value inside the procedure, but like non mutable pointer or value outside it)
-	::		- value, must avalible at compile time
+	:     - restrict
+	&     - reference (like value inside the procedure, but like non mutable pointer or value outside it)
+	::    - value, must avalible at compile time
 	::=   - special overload, add overload for specific value of some type
+	!     - restrict
 
 OUTPUT ARGUMENTS SPECIFIERS:
-	:'		- dereference output (dereferences return value, used for array access operator)
+	'    - dereference output (dereferences return value, used for array access operator)
 
 Input arguments can be default initialized.
 The default parameters will be initialized outside of procedure call.
@@ -95,114 +96,7 @@ HIDDEN TYPES:
 
 CONSTRUCTOR, DESTRUCTORS:
 	Constructors, and destructors does not exist.
-	There are a type traits needs_init(:Type) and needs_deinit(:Type) which can tell if the type needs
+	There are a type traits needs_init(Type) and needs_deinit(Type) which can tell if the type needs
 	to be initialized or deinitialized.
 	Intialization can be done by using procedures or by default of coutum initializetion.
 	Deinitializetion should be implemented by the procedure: deinit :: proc(object : *Type){}
-
-
-IMPLICIT CONVERSIONS:
-	Implicit conversions exist between:
-		types: u8 u16 u32 u64 i8 i16 i32 i64 bool
-		*byte to any pointer
-		^byte to any viewing pointer
-
-
-proc move(arr :& dyn_arr(?T)) out :& typeof(arr){} {
-	out.data = arr.data;
-	out.size = arr.size;
-	out.capacity = arr.capacity;
-
-	arr.data = Null;
-	arr.size = 0;
-	arr.capacity = 0;
-}
-
-INITIALIZATION TYPES:
-	x := 1;                - normal assignment
-	x := I32->1;           - normal assignment with type casting 
-	x : Int;               - no initialized declaration
-	x := Vec3f{1,2,3};     - costum initialization
-	x := Vec3f{
-		.x = 1,
-		.y = 2,
-		.z = 3	
-	};                      - designated initializetion
-	x := Vec3{};            - default initialization
-
-
-// procedures can be defined only at global or class definition scope (at local scope use lambdas)
-x :: proc(a, b){}      - procedure declaration
-x :: proc..(a, b){}    - inline procedure declaration
-x :: proc{0,1}(a, b){} - procedure with commuting arguments declaration
-
-// if those below have no specification, they can be declared at local scope
-x :: struct(spec){}    - structure declaration
-x :: class(spec) = T   - class alias declaration 
-x :: enum(spec){}      - enum declaration
-x :: union(spec){}     - discriminating union declaration
-
-x ::= 1;               - weak constant (compile time value), can be reassigned t global scope with = operator
-
-
-x : i32 = 1;
-
-CLASS LITERALS:
-	user_data := struct{
-		name = "name",
-		address = 0xffff0000,
-		index = 123456
-	};
-
-	some_enum := enum->u8{
-		One, Two, Three, Four, Five
-	}
-
-	expected := union->u8{
-		data = "123";
-		error = Error{
-			code = 123;
-			message = "123";
-		};
-	}
-
-
-
-MIMIQUING THE NAMESPACE:
-math := struct{
-	sin :: proc(x : f32){
-		return x;
-	};
-	cos :: proc(x : f64){
-		...
-		return result;
-	};
-	pow :: proc(base : int, exp : int){
-		res : u32 = 1;
-		while i:=0; i!=exp{
-			res *= exp;
-			i+=1;
-		}
-		return res;
-	};
-}
-
-SPACIAL CONSTANT VARIABLES:
-	True      - true boolean value
-	False     - false boolean value
-	Null      - null pointer
-	&&        - current namespace (inside a structure definition works as inheritance)
-
-
-SWITCH STATEMENT:
-
-if x =={
->> 1:
-	do_something(value);
-	continue;
->> 2:
-
->> 3:
->>
-	
-}
