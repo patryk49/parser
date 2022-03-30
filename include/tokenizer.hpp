@@ -7,12 +7,14 @@
 #include "SPL/Allocators.hpp"
 
 
-
 constexpr sp::Range<const char> KeywordName[] = {
 // COMPILER DIRECTIVES
 	sp::range("main"), sp::range("import"),
 	sp::range("if"), sp::range("while"), sp::range("for"),
+	sp::range("at"),
 	sp::range("assert"),
+	sp::range("run"), sp::range("inline"),
+	sp::range("size"), sp::range("len"),
 	sp::range("set"), sp::range("unset"),
 	sp::range("asm"), sp::range("insert"),
 
@@ -27,12 +29,14 @@ constexpr sp::Range<const char> KeywordName[] = {
 	sp::range("bytesof"), sp::range("alignof"), sp::range("exists"),
 };
 
-
 enum class NodeType : uint16_t{
 // COMPILER DIRECTIVES ----------------------
 	Main, Import,
 	StaticIf, StaticWhile, StaticFor,
+	At,
 	StaticAssert,
+	StaticRun, Inline,
+	StaticSize, StaticLen,
 	Set, Unset,
 	Asm, Insert,
 
@@ -54,8 +58,9 @@ enum class NodeType : uint16_t{
 	LogicNot, BitNot,
 	
 	// EXPRESSION OPENING SYMBOLS
-	Comma,
+	Comma, Slice,
 	OpenPar, OpenBrace, OpenBracket,
+	GetProcedure, GetSomethingInBraces, GetField,
 
 	// BINARY OPERATORS
 	LogicOr,
@@ -84,7 +89,7 @@ enum class NodeType : uint16_t{
 	Access,
 
 	// ASSIGNS
-	Assign,
+	Assign, ExpandAssign,
 	
 	AddAssign, SubtractAssign,
 	MultiplyAssign, DivideAssign,
@@ -107,40 +112,37 @@ enum class NodeType : uint16_t{
 	// OTHER RIGHT TO LEFT OPERATIONS
 	Ternary, Cast, Reinterpret,
 	
-	GetFunction, GetMember,
-	GetElement,
-	GetSlice, GetSliceFromBegin, GetSliceToEnd,
-
 	// STATEMENTS
-	OpenDoubleBracket,
+	OpenScope, ArrayLiteral, FixedArray, FiniteArray,
 	ClosePar, CloseBrace, CloseBracket, CloseDoubleBracket,
 
-	OpenScope,
 	GotoAddress,
 	Switch, StaticSwitch,
 
-	Declare, DeclareConst, DeclareWeakConst,
+	DoubleColon, TripleColon, DoubleColonAmpersand,
+	Variable, Constant,
+	ExpandedVariable, ExpandedConstant,
+
+	GotoInstruction, BreakIterator, ContinueIterator,
 
 	// OTHER
 	Attribute, Label, Deduction,
 	PredefScope,
 
 	// LITERALS
-	Integer, Unsigned, Float, Double, Character, String,
+	Integer, Unsigned, Float, Double, Character, String, EmptyArray,
 
 	// EXPRESSIONS
 	Name, Call, Subscript,
 	Conversion, DirectCast, WhileOfDo,
-	Literal, ArrayLiteral,
+	Literal,
 
 	// CLASS NODES
 	Pointer, ViewPointer,
-	Array, VarArray,
-	FunctionAddress,
 
 
 	// TOKEN ONLY
-	Null, Terminator, Colon, Slice,
+	Null, Terminator, Colon,
 
 	// SPECIFICATIONS
 	OutputParameter, DereferenceOutput,
@@ -156,7 +158,8 @@ enum class NodeType : uint16_t{
 union Node{
 // DATA TYPES
 	union Data{
-		size_t name_index;
+		size_t index;
+		size_t size;
 		uint64_t u64;
 		uint32_t u32_array[2];
 		uint16_t u16_array[4];
@@ -249,37 +252,36 @@ Node get_number_token_from_iterator(const char **inpIter, uint32_t pos) noexcept
 	Node node{NodeType::Integer, pos};
 	node.u16 = 0;
 
-	char c = **inpIter;
-	int64_t numsign = (c=='+') - (c=='-');
-	*inpIter += numsign & 1;
-	numsign |= 1;
+	const char *prevInpIter = *inpIter;
 
-	if (**inpIter == '0'){
+	char c = **inpIter;
+	if (c == '.') goto ParseFloat;
+
+	if (c == '0'){
 		++*inpIter;
 		switch (**inpIter){
 		case 'x':
-			node.data.u64 = numsign * (uint64_t)numsign*strtoul(*inpIter+1, (char **)inpIter, 16);
+			node.data.u64 = (uint64_t)strtoul(*inpIter+1, (char **)inpIter, 16);
 			goto ReturnInt;
 		
 		case 'o':
-			node.data.u64 = numsign * (uint64_t)strtoul(*inpIter+1, (char **)inpIter, 8);
+			node.data.u64 = (uint64_t)strtoul(*inpIter+1, (char **)inpIter, 8);
 			goto ReturnInt;
 
 		case 'b':
-			node.data.u64 = numsign * (uint64_t)strtoul(*inpIter+1, (char **)inpIter, 2);
+			node.data.u64 = (uint64_t)strtoul(*inpIter+1, (char **)inpIter, 2);
 			goto ReturnInt;
 
 		default: break;
 		}
 	}
 	{
-		const char *prevInpIter = *inpIter;
-		uint64_t intResult = numsign * (uint64_t)strtoul(*inpIter, (char **)inpIter, 10);
-		if (**inpIter == '.'){
+		node.data.u64 = (uint64_t)strtoul(*inpIter, (char **)inpIter, 10);
+		
+		if (**inpIter == '.' && is_number(*(*inpIter+1))){
+		ParseFloat:
 			node.type = NodeType::Double;
-			node.data.f64 = (double)numsign * strtod(prevInpIter, (char**)inpIter);
-		} else{
-			node.data.u64 = intResult;
+			node.data.f64 = strtod(prevInpIter, (char**)inpIter);
 		}
 	}
 
@@ -365,8 +367,6 @@ void raise_error(const char *msg0, const char *msg1, uint32_t pos) noexcept{
 
 
 
-
-
 // array that stores names
 sp::DynamicArray<char, sp::MallocAllocator<>> names;
 
@@ -390,7 +390,7 @@ sp::DynamicArray<Node, sp::MallocAllocator<>> make_tokens(const char *input) noe
 				NodeType prev = sp::back(tokens).type;
 				if (NodeType::Add<=prev && prev<=NodeType::ArrayRightShift){
 					sp::back(tokens).type = (NodeType)(
-						(uint16_t)curr.type + ((uint16_t)NodeType::AddAssign-(uint16_t)NodeType::Add)
+						(uint16_t)prev + ((uint16_t)NodeType::AddAssign-(uint16_t)NodeType::Add)
 					);
 					goto Break;
 				}
@@ -403,8 +403,11 @@ sp::DynamicArray<Node, sp::MallocAllocator<>> make_tokens(const char *input) noe
 			if (*input == '%'){
 				curr.type = NodeType::CarryAdd;
 				++input;
-			} else
+			} else if (is_number(*input)){
+				curr = get_number_token_from_iterator(&input, curr.pos);
+			} else{
 				curr.type = NodeType::Add;
+			}
 			goto AddToken;
 
 
@@ -415,8 +418,22 @@ sp::DynamicArray<Node, sp::MallocAllocator<>> make_tokens(const char *input) noe
 			} else if (*input == '%'){
 				curr.type = NodeType::BorrowSubtract;
 				++input;
-			} else
+			} else if (is_number(*input)){
+				curr = get_number_token_from_iterator(&input, curr.pos);
+				switch (curr.type){
+				case NodeType::Double:
+					curr.data.f64 = -curr.data.f64;
+					break;
+				case NodeType::Float:
+					curr.data.f32 = -curr.data.f32;
+					break;
+				default:
+					curr.data.u64 = -curr.data.u64;
+					break;
+				}
+			} else{
 				curr.type = NodeType::Subtract;
+			}
 			goto AddToken;
 
 
@@ -580,7 +597,8 @@ sp::DynamicArray<Node, sp::MallocAllocator<>> make_tokens(const char *input) noe
 		
 		
 		case '}':
-			[[unlikely]] if (sp::is_empty(scopes)) raise_error("too many closing braces", curr.pos);
+			// [[unlikely]] if (sp::is_empty(scopes)) raise_error("too many closing braces", curr.pos);
+			sp::pop(scopes);
 			curr.type = NodeType::CloseBrace;
 			++input;
 			goto AddToken;
@@ -588,9 +606,9 @@ sp::DynamicArray<Node, sp::MallocAllocator<>> make_tokens(const char *input) noe
 		
 		case '[': ++input;
 			if (*input == '['){
-				curr.type = NodeType::OpenDoubleBracket;
+				curr.type = NodeType::FiniteArray;
 				++input;
-			} if (*input == ']'){
+			} else if (*input == ']'){
 				curr.type = NodeType::Range;
 				++input;
 			} else{
@@ -641,18 +659,23 @@ sp::DynamicArray<Node, sp::MallocAllocator<>> make_tokens(const char *input) noe
 			++input;
 			goto AddToken;
 		
-
 		case ':':
 			++input;
 			if (*input == ':'){
-				curr.type = NodeType::DeclareConst;
+				curr.type = NodeType::DoubleColon;
 				++input;
-				if (*input == '='){
-					curr.type = NodeType::DeclareWeakConst;
+				if (*input == ':'){
+					curr.type = NodeType::TripleColon;
+					++input;
+				} else if (*input == '='){
+					curr.type = NodeType::Constant;
+					++input;
+				} else if (*input == '&'){
+					curr.type = NodeType::DoubleColonAmpersand;
 					++input;
 				}
 			} else if (*input == '='){
-				curr.type = NodeType::Declare;
+				curr.type = NodeType::Variable;
 				++input;
 			} else {
 				curr.type = NodeType::Colon;
@@ -672,8 +695,18 @@ sp::DynamicArray<Node, sp::MallocAllocator<>> make_tokens(const char *input) noe
 			if (*input == '.'){
 				++input;
 				curr.type = NodeType::Slice;
-			} else
+			} else if (*input == '('){
+				++input;
+				curr.type = NodeType::GetProcedure;
+			} else if (*input == '['){
+				++input;
+				curr.type = NodeType::GetField;
+			} else if (is_number(*input)){
+				--input;
+				curr = get_number_token_from_iterator(&input, curr.pos);
+			} else{
 				curr.type = NodeType::Access;
+			}
 			goto AddToken;
 
 
@@ -706,7 +739,7 @@ sp::DynamicArray<Node, sp::MallocAllocator<>> make_tokens(const char *input) noe
 		case '\"':{
 			++input;
 			curr.type = NodeType::String;
-			curr.data.name_index = sp::len(names);
+			curr.data.index = sp::len(names);
 			curr.u16 = 0;
 			for (; *input!='\"'; ++curr.u16){
 				if (*input == '\0') raise_error("unfinished string literal", curr.pos);
@@ -756,7 +789,7 @@ sp::DynamicArray<Node, sp::MallocAllocator<>> make_tokens(const char *input) noe
 
 				curr.type = NodeType::Name;
 				curr.u16 = sp::len(text);
-				curr.data.name_index = sp::len(names);
+				curr.data.index = sp::len(names);
 				push_range(names, text);
 
 				goto AddToken;
